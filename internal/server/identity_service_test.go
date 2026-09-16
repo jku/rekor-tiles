@@ -17,8 +17,10 @@ package server
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"fmt"
 	"testing"
 
@@ -49,6 +51,19 @@ func TestCreateIdentityEntry(t *testing.T) {
 	payload = append(payload, msgDoubleHash[:]...)
 	sig := ed25519.Sign(priv, payload)
 
+	mldsaPriv, err := mldsa.GenerateKey(mldsa.MLDSA44())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mldsaPubBytes, err := x509.MarshalPKIXPublicKey(mldsaPriv.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mldsaSig, err := mldsaPriv.Sign(nil, payload, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	tests := []struct {
 		name         string
 		req          *pb.IdentityRequestV001
@@ -64,6 +79,27 @@ func TestCreateIdentityEntry(t *testing.T) {
 						PublicKey: pubBytes,
 						Signature: sig,
 						Algorithm: v1.PublicKeyDetails_PKIX_ED25519,
+					},
+				},
+				Message: msgHash[:],
+			},
+			addFn: func() (*rekor_pb.TransparencyLogEntry, error) {
+				return &rekor_pb.TransparencyLogEntry{
+					InclusionProof: &rekor_pb.InclusionProof{
+						LogIndex:   1,
+						Checkpoint: &rekor_pb.Checkpoint{Envelope: "checkpoint"},
+					},
+				}, nil
+			},
+		},
+		{
+			name: "valid ML-DSA-44 request",
+			req: &pb.IdentityRequestV001{
+				Credential: &pb.IdentityRequestV001_PublicKey{
+					PublicKey: &pb.PublicKeyCredential{
+						PublicKey: mldsaPubBytes,
+						Signature: mldsaSig,
+						Algorithm: v1.PublicKeyDetails_ML_DSA_44,
 					},
 				},
 				Message: msgHash[:],

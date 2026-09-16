@@ -18,12 +18,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"testing"
 
-	"filippo.io/mldsa"
-	mldsax509 "filippo.io/mldsa/x509"
 	v1 "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	pb "github.com/sigstore/rekor-tiles/v2/pkg/generated/protobuf"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
@@ -78,7 +78,7 @@ func generateValidMLDSARequest(t *testing.T) (*pb.IdentityRequestV001, []byte) {
 	priv, err := mldsa.GenerateKey(mldsa.MLDSA44())
 	assert.NoError(t, err)
 
-	pubBytes, err := mldsax509.MarshalPKIXPublicKey(priv.PublicKey())
+	pubBytes, err := x509.MarshalPKIXPublicKey(priv.PublicKey())
 	assert.NoError(t, err)
 
 	msg := []byte("test message")
@@ -165,6 +165,44 @@ func TestToLogEntry_InvalidSignature_MLDSA(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid signature")
 	assert.Nil(t, leafBytes)
+}
+
+func TestToLogEntry_MLDSA_WrongParameterSet(t *testing.T) {
+	// Generate an ML-DSA-65 key instead of ML-DSA-44
+	priv65, err := mldsa.GenerateKey(mldsa.MLDSA65())
+	assert.NoError(t, err)
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(priv65.PublicKey())
+	assert.NoError(t, err)
+
+	msg := []byte("test message")
+	msgHash := sha256.Sum256(msg)
+
+	req := &pb.IdentityRequestV001{
+		Credential: &pb.IdentityRequestV001_PublicKey{
+			PublicKey: &pb.PublicKeyCredential{
+				PublicKey: pubBytes,
+				// Provide dummy signature of correct length for ML-DSA-44 so validate() passes
+				Signature: make([]byte, mldsa.MLDSA44().SignatureSize()),
+				Algorithm: v1.PublicKeyDetails_ML_DSA_44,
+			},
+		},
+		Message: msgHash[:],
+	}
+
+	leafBytes, _, err := ToLogEntry(context.Background(), req, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "public key is not an ML-DSA-44 key")
+	assert.Nil(t, leafBytes)
+}
+
+func TestValidate_UnsupportedAlgorithm(t *testing.T) {
+	req, _ := generateValidRequest(t)
+	req.GetPublicKey().Algorithm = v1.PublicKeyDetails_PUBLIC_KEY_DETAILS_UNSPECIFIED
+
+	err := validate(req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported signature algorithm")
 }
 
 func TestValidate_InvalidMessageSize(t *testing.T) {

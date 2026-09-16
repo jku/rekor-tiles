@@ -17,14 +17,13 @@ package identity
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"sort"
 
-	"filippo.io/mldsa"
-	mldsax509 "filippo.io/mldsa/x509"
 	"github.com/sigstore/fulcio/pkg/config"
 	v1 "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
 	pb "github.com/sigstore/rekor-tiles/v2/pkg/generated/protobuf"
@@ -185,18 +184,19 @@ func ToLogEntry(ctx context.Context, req *pb.IdentityRequestV001, cfg *config.Fu
 			return computeLeafHash(req, rootPubKeyHash[:], nil), nil, nil
 
 		case v1.PublicKeyDetails_ML_DSA_44:
-			pub, err := mldsax509.ParsePKIXPublicKey(pubKey)
+			pub, err := x509.ParsePKIXPublicKey(pubKey)
 			if err != nil {
-				fmt.Printf("Unmarshal error: %v\n", err)
 				return nil, nil, fmt.Errorf("failed to parse ML-DSA-44 public key: %w", err)
 			}
 			mldsaKey, ok := pub.(*mldsa.PublicKey)
 			if !ok {
 				return nil, nil, errors.New("parsed key is not an ML-DSA public key")
 			}
+			if mldsaKey.Parameters() != mldsa.MLDSA44() {
+				return nil, nil, errors.New("public key is not an ML-DSA-44 key")
+			}
 
 			if err := mldsa.Verify(mldsaKey, payload, sig, nil); err != nil {
-				fmt.Printf("Verify error: %v\n", err)
 				return nil, nil, errors.New("invalid signature")
 			}
 

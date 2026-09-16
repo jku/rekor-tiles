@@ -20,8 +20,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -31,8 +33,6 @@ import (
 	"testing"
 	"time"
 
-	"filippo.io/mldsa"
-	mldsax509 "filippo.io/mldsa/x509"
 	fulcio_config "github.com/sigstore/fulcio/pkg/config"
 
 	v1 "github.com/sigstore/protobuf-specs/gen/pb-go/common/v1"
@@ -132,7 +132,7 @@ func testIdentityReadWrite(t *testing.T, config backendConfig) {
 				priv, err := mldsa.GenerateKey(mldsa.MLDSA44())
 				assert.NoError(t, err)
 
-				pubBytes, err = mldsax509.MarshalPKIXPublicKey(priv.PublicKey())
+				pubBytes, err = x509.MarshalPKIXPublicKey(priv.PublicKey())
 				assert.NoError(t, err)
 
 				sig, err = priv.Sign(nil, payload, nil)
